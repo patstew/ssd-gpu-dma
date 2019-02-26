@@ -12,12 +12,39 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <sys/ioctl.h>
+#include <sys/mman.h>
 #include <getopt.h>
 #include <string.h>
 #include <errno.h>
 #include "common.h"
+#include "../../src/regs.h"
 
+void* mem = NULL;
 
+bool setup_map() {
+	int fd = open( "/dev/uio0" , O_RDWR );
+	if( fd < 0 ) {
+		fprintf(stderr, "MapResv : Unable to open /dev/uio0" );
+        return false;
+	}
+
+	mem = mmap( NULL , 128*1024*1024 , PROT_READ|PROT_WRITE , MAP_SHARED , fd , 0 );
+	
+    if( (intptr_t) mem == -1 ) {
+		fprintf(stderr, "MapResv : Unable to map reserved memory" );
+        return false;
+	}
+
+	if( close( fd ) ) {
+        fprintf(stderr, "MapResv : Error closing file descriptor" );
+        return false;
+    }
+    return true;
+}
+
+void close_map() {
+    munmap(mem, 128*1024*1024);
+}
 
 static void parse_args(int argc, char** argv, char** device, uint32_t* ns_id);
 
@@ -68,6 +95,14 @@ int main(int argc, char** argv)
 
     close(fd);
 
+    if (!setup_map()) {
+        exit(2);
+    }
+
+    uint64_t addr = 0x38000000;
+    nvm_dma_map(&window, ctrl, mem, 32768, 1, &addr);
+
+/*
     status = posix_memalign(&memory, ctrl->page_size, 3 * page_size);
     if (status != 0)
     {
@@ -75,7 +110,9 @@ int main(int argc, char** argv)
         nvm_ctrl_free(ctrl);
         exit(2);
     }
+*/
 
+/*
     status = nvm_dma_map_host(&window, ctrl, memory, 3 * page_size);
     if (status != 0)
     {
@@ -83,6 +120,19 @@ int main(int argc, char** argv)
         nvm_ctrl_free(ctrl);
         exit(1);
     }
+*/
+
+    fprintf(stderr, "ctrl: %x %x %x %x %x %x\n", (uint32_t)ctrl->dstrd, (uint32_t)ctrl->max_entries, (uint32_t)ctrl->mm_ptr, (uint32_t)ctrl->mm_size, (uint32_t)ctrl->page_size, (uint32_t)ctrl->timeout);
+    fprintf(stderr, "window: %x %x %x", (uint32_t)window->n_ioaddrs, (uint32_t)window->page_size, (uint32_t)window->vaddr);
+    for (int i = 0; i < window->n_ioaddrs; i++) {
+        fprintf(stderr, " %llx", window->ioaddrs[i]);
+    }
+    fprintf(stderr, "\n");
+    fprintf(stderr, "CAP:%llx VER:%x CC:%x CSTS:%x AQA:%x ASQ:%llx ACQ:%llx\n", *CAP(ctrl->mm_ptr), *VER(ctrl->mm_ptr), *CC(ctrl->mm_ptr), *CSTS(ctrl->mm_ptr), *AQA(ctrl->mm_ptr), *ASQ(ctrl->mm_ptr), *ACQ(ctrl->mm_ptr));
+    *CC(ctrl->mm_ptr) = 0;
+    fprintf(stderr, "CAP:%llx VER:%x CC:%x CSTS:%x AQA:%x ASQ:%llx ACQ:%llx\n", *CAP(ctrl->mm_ptr), *VER(ctrl->mm_ptr), *CC(ctrl->mm_ptr), *CSTS(ctrl->mm_ptr), *AQA(ctrl->mm_ptr), *ASQ(ctrl->mm_ptr), *ACQ(ctrl->mm_ptr));
+    *CC(ctrl->mm_ptr) = 1;
+    fprintf(stderr, "CAP:%llx VER:%x CC:%x CSTS:%x AQA:%x ASQ:%llx ACQ:%llx\n", *CAP(ctrl->mm_ptr), *VER(ctrl->mm_ptr), *CC(ctrl->mm_ptr), *CSTS(ctrl->mm_ptr), *AQA(ctrl->mm_ptr), *ASQ(ctrl->mm_ptr), *ACQ(ctrl->mm_ptr));
 
     admin = reset_ctrl(ctrl, window);
     if (admin == NULL)
@@ -105,7 +155,8 @@ int main(int argc, char** argv)
 leave:
     nvm_aq_destroy(admin);
     nvm_dma_unmap(window);
-    free(memory);
+    //free(memory);
+    close_map();
     nvm_ctrl_free(ctrl);    
 
     fprintf(stderr, "Goodbye!\n");

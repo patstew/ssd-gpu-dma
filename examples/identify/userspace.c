@@ -30,12 +30,16 @@ struct bdf
     int     function;
 };
 
+#define PAGEMAP_ENTRY 8
 
 
 static int lookup_ioaddrs(void* ptr, size_t page_size, size_t n_pages, uint64_t* ioaddrs)
 {
-    uint64_t vaddr = (uint64_t) ptr;
-    size_t offset = (vaddr / page_size) * sizeof(void*);
+    uint64_t vaddr = (uintptr_t) ptr;
+    size_t offset = (vaddr / page_size) * PAGEMAP_ENTRY;
+
+    printf("Vaddr: 0x%llx, Page_size: %d, Entry_size: %d\n", vaddr, getpagesize(), PAGEMAP_ENTRY);
+    printf("Reading 0x%llx\n", (unsigned long long) offset);
 
     FILE* fp = fopen("/proc/self/pagemap", "r");
     if (fp == NULL)
@@ -51,13 +55,31 @@ static int lookup_ioaddrs(void* ptr, size_t page_size, size_t n_pages, uint64_t*
         return errno;
     }
 
+    char* p = (void*)ioaddrs;
+    for (int i = 0; i < n_pages * PAGEMAP_ENTRY; i++) {
+        *p++ = getc(fp);
+        if (feof(fp)) {
+            fclose(fp);
+            fprintf(stderr, "Failed to read: %s\n", strerror(errno));
+            return errno;
+        }
+    }
+/*
     if (fread(ioaddrs, sizeof(uint64_t), n_pages, fp) != n_pages)
     {
         fclose(fp);
         fprintf(stderr, "Failed to read: %s\n", strerror(errno));
         return errno;
     }
-
+*/
+/*
+    if (sizeof(uintptr_t) < sizeof(uint64_t)) {
+        uintptr_t* p = (void*)ioaddrs;
+        for (int i = n_pages; i; i--) {
+            ioaddrs[i-1] = p[i-1];
+        }
+    }
+*/
     fclose(fp);
 
     for (size_t i_page = 0; i_page < n_pages; ++i_page)
